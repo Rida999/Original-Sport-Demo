@@ -3,9 +3,9 @@ const AUTH_USER_STORAGE_KEY = "original-sport-auth-user";
 const SUPERADMIN_PASSWORD_STORAGE_KEY = "original-sport-superadmin-password";
 
 const SUPERADMIN_USERNAME = "superadmin";
-const DEMO_SUPERADMIN_USERNAME = "demo-superadmin";
+const DEMO_USERNAME = "demo";
 const SUPERADMIN_DEFAULT_PASSWORD = "superadmin";
-const DEMO_SUPERADMIN_PASSWORD = "demo-superadmin";
+const DEMO_PASSWORD = "demo";
 const SUPERADMIN_ONLY_PATHS = ["/reports"];
 
 type UserRole = "admin" | "superadmin";
@@ -45,13 +45,8 @@ export function signIn(username: string, password: string): SignInResult {
 
   const normalizedUsername = username.trim().toLowerCase();
 
-  if (normalizedUsername === "admin" && password === "admin") {
+  if (normalizedUsername === DEMO_USERNAME && password === DEMO_PASSWORD) {
     completeSignIn("admin");
-    return { success: true, requiresPasswordChange: false };
-  }
-
-  if (normalizedUsername === DEMO_SUPERADMIN_USERNAME && password === DEMO_SUPERADMIN_PASSWORD) {
-    completeSignIn("superadmin");
     return { success: true, requiresPasswordChange: false };
   }
 

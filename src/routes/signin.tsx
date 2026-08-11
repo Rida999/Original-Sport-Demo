@@ -124,12 +124,10 @@ function SignInPage() {
                 </div>
                 <div>
                   <h2 className="text-xl font-semibold tracking-tight sm:text-2xl lg:mt-4">
-                    {mustChangePassword ? "Change password" : "Sign in"}
+                    Sign in
                   </h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {mustChangePassword
-                      ? "Create a private password for the superadmin account."
-                      : "Enter your admin credentials."}
+                    Enter superadmin or demo credentials.
                   </p>
                 </div>
               </div>
