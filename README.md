@@ -2,13 +2,13 @@
 
 > **A modern, full-stack inventory management platform designed to simplify retail operations and showcase real-world stock management workflows.**
 
-**Original Sport** is a dynamic inventory management application built with **React, Vite, Tailwind CSS, and TanStack Start**, designed to transform retail operations into a fast, intuitive, and polished experience. The platform combines a clean and responsive dashboard with practical inventory workflows, making it ideal for demonstrating how modern web technologies can be applied to real-world retail management.
+**Original Sport** is a dynamic inventory management application built with **Node.js, TypeScript, React, Vite, Tailwind CSS, and TanStack Start**, designed to transform retail operations into a fast, intuitive, and polished experience. The platform combines a clean and responsive dashboard with practical inventory workflows, making it ideal for demonstrating how modern web technologies can be applied to real-world retail management.
 
-The application provides a complete set of inventory and retail management features, including **product CRUD operations, inventory tracking, barcode scanning, receipt creation, archive access, and report generation**. Products can be quickly identified using the device's **camera to scan barcodes or product numbers**, or through a **USB barcode scanner** for fast and efficient inventory management.
+The application provides a complete set of inventory and retail management features, including **product CRUD operations, inventory tracking, barcode scanning, receipt creation, archive access, report generation, and data management**. Products can be quickly identified using the device's **camera to scan barcodes or product numbers**, or through a **USB barcode scanner** for fast and efficient inventory management.
 
 The application connects to a **Supabase-hosted PostgreSQL backend**, providing reliable data persistence while supporting modern server/client rendering. A built-in **demo-friendly reset mechanism** allows sample data to be restored reliably, making the application easy to demonstrate, test, and develop.
 
-With smooth local development, **SQL-driven database schema control**, a structured full-stack architecture, and **Vercel-ready deployment configuration**, Original Sport serves as a practical showcase of modern web application development and real-world retail management tooling.
+With **TypeScript-based development, Node.js, TanStack's full-stack ecosystem, SQL-driven database schema control, Docker-supported development, data validation, interactive reporting, and Vercel-ready deployment**, Original Sport serves as a practical showcase of modern web application architecture and real-world retail management tooling.
 
 ---
 
@@ -63,13 +63,13 @@ Want to try **Original Sport**? You can access the application using the demo cr
 ### 📊 Reports & Dashboard
 
 * 📈 Generate inventory and business reports
-* 📊 Monitor important inventory information
+* 📊 Interactive data visualization with **Recharts**
 * 🖥️ Centralized management dashboard
 * ⚡ Fast navigation between different sections
 * 📱 Responsive interface across different screen sizes
 * 📋 Present important retail information in an organized format
 
-### 📷 Barcode Scanning
+### 📷 Barcode & Product Recognition
 
 Original Sport supports multiple ways to identify products, making the inventory workflow suitable for both demonstrations and real-world retail environments.
 
@@ -77,60 +77,99 @@ Original Sport supports multiple ways to identify products, making the inventory
 
 Use the device's camera to scan a product barcode directly from the inventory interface.
 
-This is particularly useful when:
+Camera-based scanning is useful when:
 
-* Using a laptop or desktop without a dedicated scanner
-* Managing inventory from a mobile device
-* Quickly searching for a product
-* Demonstrating the application without additional hardware
+* 💻 Using a laptop or desktop without a dedicated scanner
+* 📱 Managing inventory from a mobile device
+* 🔍 Quickly searching for a product
+* 🎓 Demonstrating the application without additional hardware
 
 #### 🔌 USB Barcode Scanner
 
 The application also supports **USB barcode scanners**.
 
-A USB scanner behaves like a keyboard, allowing scanned barcode values to be entered directly into the application. This provides a fast workflow for retail environments where products need to be scanned repeatedly.
+A USB barcode scanner can function like a keyboard, allowing scanned barcode values to be entered directly into the application. This provides a fast and efficient workflow for retail environments where products need to be scanned repeatedly.
+
+#### 🔢 Manual Product Identification
+
+Products can also be identified by manually entering their barcode or product number when a scanning device is unavailable.
 
 ```text
-📦 Product
-    │
-    ├── 📷 Camera
-    │      └── Scan Barcode
-    │
-    ├── 🔌 USB Scanner
-    │      └── Scan Barcode
-    │
-    └── 🔢 Manual Entry
-           └── Enter Product Number
-                    │
-                    ▼
-             🔍 Find Product
-                    │
-                    ▼
-             📊 Inventory
+                         📦 Product
+                             │
+              ┌──────────────┼──────────────┐
+              │              │              │
+              ▼              ▼              ▼
+         📷 Camera      🔌 USB Scanner   🔢 Manual Entry
+              │              │              │
+              └──────────────┼──────────────┘
+                             │
+                             ▼
+                      🔍 Find Product
+                             │
+                             ▼
+                       📊 Inventory
 ```
+
+### 📄 Data Import & Export
+
+The application supports structured spreadsheet workflows using **XLSX**, allowing inventory-related data to be processed in common spreadsheet formats.
+
+### 🔐 Form Validation
+
+Forms are built using **React Hook Form** with **Zod-based schema validation**, providing structured input handling and reliable validation across the application.
+
+### 📊 Data Visualization
+
+Interactive dashboards and reports are powered by **Recharts**, allowing inventory and business information to be presented through clear visualizations.
 
 ---
 
 ## 🚀 Technology Stack
 
-| Technology                       | Purpose                                                |
-| -------------------------------- | ------------------------------------------------------ |
-| ⚛️ **React**                     | User interface and component architecture              |
-| ⚡ **Vite**                       | Fast development and build tooling                     |
-| 🎨 **Tailwind CSS**              | Responsive UI and styling                              |
-| 🚀 **TanStack Start**            | Full-stack React framework and server/client rendering |
-| 🔥 **Supabase**                  | Backend infrastructure and database services           |
-| 🐘 **PostgreSQL**                | Relational database powering Supabase                  |
-| 🗄️ **SQL**                      | Database schema definition and management              |
-| 📷 **Camera / Barcode Scanning** | Product identification through device cameras          |
-| 🔌 **USB Barcode Scanner**       | Fast physical barcode scanning                         |
-| ☁️ **Vercel**                    | Application deployment and hosting                     |
+### ⭐ Core Technologies
+
+| Technology                  | Purpose                                                               |
+| --------------------------- | --------------------------------------------------------------------- |
+| 🟢 **Node.js**              | JavaScript/TypeScript runtime and server-side application environment |
+| 🟦 **TypeScript**           | Type-safe application development                                     |
+| ⚛️ **React**                | Component-based user interface                                        |
+| ⚡ **Vite**                  | Fast development and build tooling                                    |
+| 🚀 **TanStack Start**       | Full-stack React application framework                                |
+| 🧭 **TanStack Router**      | Type-safe application routing                                         |
+| 🔄 **TanStack React Query** | Server-state and asynchronous data management                         |
+| 🐘 **PostgreSQL**           | Relational database                                                   |
+| 🔥 **Supabase**             | Cloud backend and PostgreSQL infrastructure                           |
+| 🎨 **Tailwind CSS**         | Utility-first responsive styling                                      |
+| 🧩 **Radix UI**             | Accessible and reusable UI primitives                                 |
+| 🐳 **Docker**               | Containerized development environment                                 |
+| ☁️ **Vercel**               | Application deployment and hosting                                    |
+
+### 🛠️ Supporting Technologies
+
+| Technology                      | Purpose                                             |
+| ------------------------------- | --------------------------------------------------- |
+| 📝 **React Hook Form**          | Efficient form management                           |
+| ✅ **Zod**                       | Schema validation and type-safe input validation    |
+| 📊 **Recharts**                 | Interactive charts and data visualization           |
+| 📷 **Tesseract.js**             | OCR and text recognition capabilities               |
+| 📑 **XLSX**                     | Spreadsheet data processing and import/export       |
+| 🎨 **Lucide React**             | Modern icon system                                  |
+| 🧩 **Class Variance Authority** | Component styling and variant management            |
+| 🔀 **clsx / tailwind-merge**    | Dynamic and conflict-free Tailwind class management |
+| 📅 **date-fns**                 | Date manipulation and formatting                    |
+| 🧪 **ESLint**                   | Code quality and linting                            |
+| ✨ **Prettier**                  | Consistent code formatting                          |
+
+> **Note:** The project uses **Node.js with TanStack Start** for its application/server environment and does not rely on Express.
 
 ---
 
 ## 🏗️ Architecture
 
-Original Sport follows a modern full-stack architecture with **React, Vite, and Tailwind CSS** powering the user interface, **TanStack Start** handling the application layer and server/client rendering, and **Supabase/PostgreSQL** providing backend services and persistent data storage.
+Original Sport follows a modern full-stack architecture with **React and TypeScript** powering the user interface, **Vite** providing development and build tooling, and the **TanStack ecosystem** handling routing, server-side functionality, and asynchronous data management.
+
+**Node.js** provides the runtime environment, while **TanStack Start** provides the full-stack application framework. **Supabase** provides cloud backend services and the PostgreSQL database, while **Tailwind CSS and Radix UI** provide the foundation for a responsive and accessible interface.
 
 ```text
                     ┌─────────────────────┐
@@ -139,20 +178,20 @@ Original Sport follows a modern full-stack architecture with **React, Vite, and 
                     └──────────┬──────────┘
                                │
                     ┌──────────▼──────────┐
-                    │      React UI       │
-                    │  Tailwind + Vite    │
+                    │   React + TypeScript│
+                    │  Tailwind + Radix UI│
                     └──────────┬──────────┘
                                │
                     ┌──────────▼──────────┐
+                    │      Node.js        │
                     │   TanStack Start    │
-                    │ Server / Client     │
-                    │    Rendering        │
+                    │  Router + Query     │
                     └──────────┬──────────┘
                                │
-              ┌────────────────▼────────────────┐
-              │            Supabase             │
-              │       Backend Services          │
-              └────────────────┬────────────────┘
+                    ┌──────────▼──────────┐
+                    │      Supabase       │
+                    │  Backend Services   │
+                    └──────────┬──────────┘
                                │
                     ┌──────────▼──────────┐
                     │     PostgreSQL      │
@@ -201,16 +240,58 @@ Because the PostgreSQL database is hosted by Supabase, the application does not 
 
 ---
 
+## 🐳 Docker
+
+Original Sport supports a **Docker-based development environment**, helping provide a consistent and reproducible setup across different machines.
+
+Docker can be used to containerize the application's development environment and simplify the process of setting up and running the project.
+
+### 📋 Docker Prerequisites
+
+Make sure you have:
+
+* 🐳 **Docker Desktop**
+* 🐙 **Docker Compose** if the project uses a Compose configuration
+
+### ▶️ Start with Docker
+
+If a `docker-compose.yml` or `compose.yml` configuration is provided:
+
+```bash
+docker compose up --build
+```
+
+To run the containers in the background:
+
+```bash
+docker compose up -d --build
+```
+
+To stop the containers:
+
+```bash
+docker compose down
+```
+
+> 💡 Make sure Docker Desktop is installed and running before starting the application with Docker.
+
+---
+
 ## 💻 Getting Started
 
 ### 📋 Prerequisites
 
-Make sure you have the following installed:
+For local development, make sure you have:
 
 * **Node.js**
 * **npm**
 * **Git**
 * A **Supabase project**
+
+For containerized development:
+
+* **Docker Desktop**
+* **Docker Compose** if applicable
 
 For physical barcode scanning:
 
@@ -312,20 +393,27 @@ The project combines multiple real-world workflows into one application:
 
 **Product Management → Inventory Tracking → Barcode Scanning → Transactions → Receipts → Archives → Reports**
 
-Rather than being limited to a basic CRUD application, Original Sport demonstrates how different business workflows can be integrated into a single full-stack application with a structured database, modern frontend architecture, cloud-based backend services, and hardware-compatible inventory workflows.
+Rather than being limited to a basic CRUD application, Original Sport demonstrates how different business workflows can be integrated into a single full-stack application with a structured database, modern frontend architecture, cloud-based backend services, data validation, interactive reporting, and hardware-compatible inventory workflows.
 
 The project showcases practical experience with:
 
+* 🟢 Node.js runtime and server-side development
+* 🟦 TypeScript development
 * ⚛️ Modern React development
-* 🚀 Full-stack application architecture
+* 🚀 TanStack full-stack architecture
+* 🧭 Type-safe routing
+* 🔄 Server-state management
 * 🔥 Supabase integration
 * 🐘 PostgreSQL database management
 * 🗄️ SQL schema design
 * 📷 Camera-based barcode scanning
 * 🔌 USB barcode scanner integration
+* 📊 Data visualization
+* 📑 Spreadsheet data processing
+* 🔐 Form and schema validation
+* 🐳 Docker-based development
 * 🎨 Responsive UI development
 * ☁️ Cloud deployment
-* 🔄 Demo and data management workflows
 
 ---
 
@@ -344,11 +432,12 @@ Potential future enhancements include:
 * 📈 Advanced sales dashboards
 * 🌍 Multi-language support
 * 🔐 Enhanced Row Level Security policies
-* 📤 Data export and import functionality
-* 📊 Advanced inventory forecasting
+* 📤 Advanced data export and import
+* 📊 Inventory forecasting
 * 🖨️ Receipt printer integration
 * 🏷️ Automatic barcode generation and printing
 * 📦 Bulk inventory scanning
+* 🔔 Real-time inventory notifications
 
 ---
 
@@ -386,10 +475,10 @@ Then open a pull request describing your changes and improvements.
 
 ## ⭐ Final Notes
 
-**Original Sport** brings together modern frontend development, cloud-based backend infrastructure, database-driven workflows, and practical retail tooling to create a realistic and polished inventory management experience.
+**Original Sport** brings together modern frontend development, cloud-based backend infrastructure, database-driven workflows, containerized development, and practical retail tooling to create a realistic and polished inventory management experience.
 
-Built with **React, Vite, Tailwind CSS, TanStack Start, Supabase, PostgreSQL, SQL, and Vercel**, the project demonstrates how modern technologies can be combined to create scalable, maintainable, and deployment-ready web applications.
+Built with **Node.js, TypeScript, React, Vite, Tailwind CSS, TanStack Start, TanStack Router, TanStack Query, Supabase, PostgreSQL, Docker, and Vercel**, the project demonstrates how modern technologies can be combined to create scalable, maintainable, and deployment-ready web applications.
 
-With support for **camera-based barcode scanning, manual product identification, and USB barcode scanners**, Original Sport goes beyond a traditional inventory CRUD application and demonstrates a more practical approach to real-world retail operations.
+With support for **camera-based barcode scanning, manual product identification, and USB barcode scanners**, Original Sport goes beyond a traditional inventory CRUD application and demonstrates a practical approach to real-world retail operations.
 
 > ⭐ **Original Sport — Modern inventory management, built for real-world retail workflows.**
