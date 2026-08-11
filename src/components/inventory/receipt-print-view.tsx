@@ -1,6 +1,6 @@
 import { Instagram } from "lucide-react";
 import type { ReceiptWithItems } from "@/server/receipts";
-import logo from "@/assets/logo.png";
+import logo from "@/assets/logo.svg";
 
 export function ReceiptPrintView({ receipt }: { receipt: ReceiptWithItems }) {
   const createdAt = new Date(receipt.created_at);
@@ -13,7 +13,7 @@ export function ReceiptPrintView({ receipt }: { receipt: ReceiptWithItems }) {
       className="mx-auto max-w-xs bg-white p-5 font-sans text-sm font-medium text-black"
     >
       <div className="text-center space-y-1">
-        <img src={logo} alt="Original Sport" className="mx-auto w-64 h-auto object-contain" />
+        <img src={logo} alt="IMS" className="mx-auto w-64 h-auto object-contain" />
         <div className="text-xs font-normal text-black">MOF: 3256725-601</div>
         <div className="text-xs font-normal text-black">Tyre-Hosh Main Road</div>
         <div className="text-xs font-normal text-black">03/471489</div>

@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { changeSuperAdminPassword, isSignedIn, signIn } from "@/lib/auth";
-import logo from "@/assets/logo.png";
+import logo from "@/assets/logo.svg";
 
 export const Route = createFileRoute("/signin")({
   ssr: false,
@@ -81,7 +81,7 @@ function SignInPage() {
               <div className="flex">
                 <img
                   src={logo}
-                  alt="Original Sport"
+                  alt="IMS"
                   className="h-20 w-auto object-contain mix-blend-multiply dark:mix-blend-screen dark:invert"
                 />
               </div>
@@ -110,7 +110,7 @@ function SignInPage() {
             <div className="flex justify-center">
               <img
                 src={logo}
-                alt="Original Sport"
+                alt="IMS"
                 className="h-20 w-auto object-contain mix-blend-multiply dark:mix-blend-screen dark:invert"
               />
             </div>
