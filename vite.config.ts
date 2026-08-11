@@ -1,0 +1,26 @@
+import { tanstackStart } from "@tanstack/react-start/plugin/vite";
+import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
+import tsConfigPaths from "vite-tsconfig-paths";
+
+export default defineConfig({
+  plugins: [
+    tsConfigPaths(),
+    tanstackStart({
+      server: { entry: "server" },
+    }),
+    react(),
+    tailwindcss(),
+  ],
+  build: {
+    target: "chrome109",
+    cssTarget: "chrome109",
+  },
+  resolve: {
+    dedupe: ["@tanstack/react-router", "react", "react-dom"],
+  },
+  server: {
+    port: 8080,
+  },
+});

@@ -1,0 +1,1340 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  adjustProductStockByArticleNumber,
+  listInventory,
+  restoreReceiptStock,
+  setProductQuickSale,
+} from "@/server/inventory";
+import {
+  createReceipt,
+  getReceiptDraftSlot,
+  saveReceiptDraftSlot,
+} from "@/server/receipts";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Camera,
+  Minus,
+  Plus,
+  Printer,
+  RotateCcw,
+  ScanLine,
+  Search,
+  ShoppingCart,
+  Trash2,
+  X,
+} from "lucide-react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type SetStateAction,
+  type TouchEvent,
+  type TouchList as ReactTouchList,
+} from "react";
+import { toast } from "sonner";
+import { money } from "@/lib/format";
+
+type ReceiptLine = {
+  product_id: string | null;
+  article_number?: string;
+  description: string;
+  quantity: number;
+  unit_price: number;
+};
+
+type ReceiptDraft = {
+  items: ReceiptLine[];
+  cashPaid: string;
+  discountMode: "none" | "preset" | "custom";
+  discountPercent: number;
+  customDiscountPercent: string;
+  discountOverride: string;
+  totalOverride: string;
+  changeOverride: string;
+};
+
+type InventorySort =
+  | "recently-updated"
+  | "recently-sold"
+  | "stock-low"
+  | "stock-high"
+  | "price-low"
+  | "price-high";
+
+export const Route = createFileRoute("/_authenticated/inventory")({
+  head: () => ({ meta: [{ title: "Inventory — SportsWear Inventory" }] }),
+  component: Inventory,
+});
+
+type StockAdjustment = {
+  isPending: boolean;
+  mutate: (variables: { article_number: string; mode: "remove" | "return" }) => void;
+};
+
+const DEFAULT_CAMERA_ZOOM = 1.8;
+const MIN_CAMERA_ZOOM = 1;
+const MAX_CAMERA_ZOOM = 3.5;
+
+type ZoomTrackCapabilities = MediaTrackCapabilities & {
+  zoom?: { min?: number; max?: number };
+};
+
+type ZoomTrackConstraints = MediaTrackConstraintSet & {
+  zoom?: number;
+};
+
+const clampCameraZoom = (zoom: number) =>
+  Math.min(MAX_CAMERA_ZOOM, Math.max(MIN_CAMERA_ZOOM, zoom));
+
+const touchDistance = (touches: ReactTouchList) => {
+  const first = touches.item(0);
+  const second = touches.item(1);
+  if (!first || !second) return 0;
+  return Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY);
+};
+
+const cameraConstraints = (deviceId: string | undefined, zoom: number): MediaTrackConstraints =>
+  ({
+    ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: "environment" } }),
+    width: { ideal: 1920 },
+    height: { ideal: 1080 },
+    advanced: [{ zoom } as ZoomTrackConstraints],
+  }) as MediaTrackConstraints;
+
+const applyCameraZoom = async (stream: MediaStream, zoom: number) => {
+  const [track] = stream.getVideoTracks();
+  if (!track) return;
+  const capabilities = track.getCapabilities?.() as ZoomTrackCapabilities | undefined;
+  const maxZoom = capabilities?.zoom?.max;
+  if (!maxZoom) return;
+  await track.applyConstraints({
+    advanced: [{ zoom: Math.min(zoom, maxZoom) } as ZoomTrackConstraints],
+  });
+};
+
+const textCodeFromOcr = (text: string) => {
+  const cleaned = text
+    .toUpperCase()
+    .split(/[\s\n\r]+/)
+    .map((part) => part.replace(/[^A-Z0-9-]/g, ""))
+    .filter((part) => part.length >= 3 && part.length <= 40 && /\d/.test(part));
+  return cleaned[0] ?? "";
+};
+
+const discountOptions = [5, 10, 15] as const;
+const RECEIPT_DRAFT_KEY = "original-sport-receipt-draft";
+const RECEIPT_DRAFTS_KEY = "original-sport-receipt-drafts-v2";
+const receiptDraftSlots = ["receipt-a", "receipt-b"] as const;
+const clampPercent = (percent: number) => Math.min(100, Math.max(0, percent));
+
+const emptyReceiptDraft = (): ReceiptDraft => ({
+  items: [],
+  cashPaid: "",
+  discountMode: "none",
+  discountPercent: 0,
+  customDiscountPercent: "",
+  discountOverride: "",
+  totalOverride: "",
+  changeOverride: "",
+});
+
+const isReceiptDraftEmpty = (draft: ReceiptDraft) =>
+  draft.items.length === 0 &&
+  draft.cashPaid.trim().length === 0 &&
+  draft.discountMode === "none" &&
+  draft.discountPercent === 0 &&
+  draft.customDiscountPercent.trim().length === 0 &&
+  draft.discountOverride.trim().length === 0 &&
+  draft.totalOverride.trim().length === 0 &&
+  draft.changeOverride.trim().length === 0;
+
+const normalizeReceiptDraft = (draft: Partial<ReceiptDraft> | null | undefined): ReceiptDraft => {
+  const items = Array.isArray(draft?.items)
+    ? draft.items.filter(
+        (item): item is ReceiptLine =>
+          typeof item.description === "string" &&
+          typeof item.quantity === "number" &&
+          typeof item.unit_price === "number",
+      )
+    : [];
+  const discountMode =
+    draft?.discountMode === "preset" || draft?.discountMode === "custom"
+      ? draft.discountMode
+      : "none";
+
+  return {
+    items,
+    cashPaid: typeof draft?.cashPaid === "string" ? draft.cashPaid : "",
+    discountMode,
+    discountPercent: Number(draft?.discountPercent) || 0,
+    customDiscountPercent:
+      typeof draft?.customDiscountPercent === "string" ? draft.customDiscountPercent : "",
+    discountOverride: typeof draft?.discountOverride === "string" ? draft.discountOverride : "",
+    totalOverride: typeof draft?.totalOverride === "string" ? draft.totalOverride : "",
+    changeOverride: typeof draft?.changeOverride === "string" ? draft.changeOverride : "",
+  };
+};
+
+const readReceiptDraft = (): ReceiptDraft | null => {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.localStorage.getItem(RECEIPT_DRAFT_KEY);
+    if (!raw) return null;
+
+    const draft = JSON.parse(raw) as Partial<ReceiptDraft>;
+    const items = Array.isArray(draft.items)
+      ? draft.items.filter(
+          (item): item is ReceiptLine =>
+            typeof item.description === "string" &&
+            typeof item.quantity === "number" &&
+            typeof item.unit_price === "number",
+        )
+      : [];
+    const discountMode =
+      draft.discountMode === "preset" || draft.discountMode === "custom"
+        ? draft.discountMode
+        : "none";
+
+    return {
+      items,
+      cashPaid: typeof draft.cashPaid === "string" ? draft.cashPaid : "",
+      discountMode,
+      discountPercent: Number(draft.discountPercent) || 0,
+      customDiscountPercent:
+        typeof draft.customDiscountPercent === "string" ? draft.customDiscountPercent : "",
+      discountOverride:
+        typeof draft.discountOverride === "string" ? draft.discountOverride : "",
+      totalOverride: typeof draft.totalOverride === "string" ? draft.totalOverride : "",
+      changeOverride: typeof draft.changeOverride === "string" ? draft.changeOverride : "",
+    };
+  } catch {
+    return null;
+  }
+};
+
+const readReceiptDrafts = (): [ReceiptDraft, ReceiptDraft] => {
+  if (typeof window === "undefined") return [emptyReceiptDraft(), emptyReceiptDraft()];
+
+  try {
+    const raw = window.localStorage.getItem(RECEIPT_DRAFTS_KEY);
+    if (raw) {
+      const drafts = JSON.parse(raw) as Partial<ReceiptDraft>[];
+      return [
+        normalizeReceiptDraft(drafts?.[0]),
+        normalizeReceiptDraft(drafts?.[1]),
+      ];
+    }
+  } catch {
+    // Fall through to the single-receipt migration below.
+  }
+
+  return [readReceiptDraft() ?? emptyReceiptDraft(), emptyReceiptDraft()];
+};
+
+function Inventory() {
+  const [q, setQ] = useState("");
+  const [brandFilter, setBrandFilter] = useState("all");
+  const [inventorySort, setInventorySort] = useState<InventorySort>("recently-updated");
+  const [quickSalesEditing, setQuickSalesEditing] = useState(false);
+  const [scanCode, setScanCode] = useState("");
+  const [scanMode, setScanMode] = useState<"remove" | "return">("remove");
+  const [cameraActive, setCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState("");
+  const [cameraZoom, setCameraZoom] = useState(DEFAULT_CAMERA_ZOOM);
+  const scanInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const scanCooldownRef = useRef("");
+  const cameraStreamRef = useRef<MediaStream | null>(null);
+  const cameraZoomRef = useRef(DEFAULT_CAMERA_ZOOM);
+  const pinchDistanceRef = useRef(0);
+  const adjustStockRef = useRef<StockAdjustment | null>(null);
+  const printWindowRef = useRef<Window | null>(null);
+  const lastPushedDraftRef = useRef<Record<string, string>>({});
+  const [activeReceiptIndex, setActiveReceiptIndex] = useState<0 | 1>(0);
+  const [receiptDrafts, setReceiptDrafts] = useState<[ReceiptDraft, ReceiptDraft]>(
+    () => readReceiptDrafts(),
+  );
+  const [secondReceiptOpen, setSecondReceiptOpen] = useState(
+    () => readReceiptDrafts()[1].items.length > 0,
+  );
+  const activeReceipt = receiptDrafts[activeReceiptIndex];
+  const activeReceiptSlot = receiptDraftSlots[activeReceiptIndex];
+  const receiptItems = activeReceipt.items;
+  const cashPaid = activeReceipt.cashPaid;
+  const discountMode = activeReceipt.discountMode;
+  const discountPercent = activeReceipt.discountPercent;
+  const customDiscountPercent = activeReceipt.customDiscountPercent;
+  const discountOverride = activeReceipt.discountOverride;
+  const totalOverride = activeReceipt.totalOverride;
+  const changeOverride = activeReceipt.changeOverride;
+  const hasAnyReceiptItems = receiptDrafts.some((draft) => draft.items.length > 0);
+  const showReceiptPanel = hasAnyReceiptItems || secondReceiptOpen;
+  const showReceiptSelector = secondReceiptOpen || receiptDrafts[1].items.length > 0;
+  const qc = useQueryClient();
+  const updateActiveReceipt = (updater: (draft: ReceiptDraft) => ReceiptDraft) => {
+    setReceiptDrafts((current) => {
+      const next = [...current] as [ReceiptDraft, ReceiptDraft];
+      next[activeReceiptIndex] = updater(current[activeReceiptIndex]);
+      return next;
+    });
+  };
+  const setActiveReceiptField = <K extends keyof ReceiptDraft>(
+    key: K,
+    value: SetStateAction<ReceiptDraft[K]>,
+  ) => {
+    updateActiveReceipt((draft) => ({
+      ...draft,
+      [key]: typeof value === "function" ? (value as (previous: ReceiptDraft[K]) => ReceiptDraft[K])(draft[key]) : value,
+    }));
+  };
+  const setReceiptItems = (value: SetStateAction<ReceiptLine[]>) => {
+    setActiveReceiptField("items", value);
+  };
+  const setCashPaid = (value: SetStateAction<string>) => setActiveReceiptField("cashPaid", value);
+  const setDiscountMode = (value: SetStateAction<"none" | "preset" | "custom">) =>
+    setActiveReceiptField("discountMode", value);
+  const setDiscountPercent = (value: SetStateAction<number>) =>
+    setActiveReceiptField("discountPercent", value);
+  const setCustomDiscountPercent = (value: SetStateAction<string>) =>
+    setActiveReceiptField("customDiscountPercent", value);
+  const setDiscountOverride = (value: SetStateAction<string>) =>
+    setActiveReceiptField("discountOverride", value);
+  const setTotalOverride = (value: SetStateAction<string>) =>
+    setActiveReceiptField("totalOverride", value);
+  const setChangeOverride = (value: SetStateAction<string>) =>
+    setActiveReceiptField("changeOverride", value);
+  const { data } = useQuery({
+    queryKey: ["inventory"],
+    queryFn: async () => listInventory(),
+  });
+  // Shared with any other device (e.g. a monitor) looking at this same page -
+  // whichever device scans pushes here, everyone else picks it up on poll.
+  const { data: draftReceipt } = useQuery({
+    queryKey: ["draft-receipt", activeReceiptSlot],
+    queryFn: async () => getReceiptDraftSlot({ data: { slot: activeReceiptSlot } }),
+    refetchInterval: 1500,
+  });
+  const syncDraft = useMutation({
+    mutationFn: async ({ slot, items }: { slot: string; items: ReceiptLine[] }) =>
+      saveReceiptDraftSlot({ data: { slot, items } }),
+  });
+  const toggleQuickSale = useMutation({
+    mutationFn: async ({ id, quick_sale }: { id: string; quick_sale: boolean }) =>
+      setProductQuickSale({ data: { id, quick_sale } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["inventory"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const pushDraft = (items: ReceiptLine[], slot = activeReceiptSlot) => {
+    lastPushedDraftRef.current[slot] = JSON.stringify(items);
+    syncDraft.mutate({ slot, items });
+  };
+  const brandOptions = useMemo(() => {
+    const brands = new Set<string>();
+    for (const p of data ?? []) {
+      if (p.sub_brand) brands.add(p.sub_brand);
+    }
+    return Array.from(brands).sort((a, b) => a.localeCompare(b));
+  }, [data]);
+  const filtered = useMemo(
+    () => {
+      const items = (data ?? []).filter((p) => {
+        if (brandFilter !== "all" && p.sub_brand !== brandFilter) return false;
+        if (!q) return true;
+        return (
+          p.name.toLowerCase().includes(q.toLowerCase()) ||
+          p.article_number?.includes(q)
+        );
+      });
+
+      return [...items].sort((a, b) => {
+        switch (inventorySort) {
+          case "recently-sold":
+            return (
+              new Date(b.last_sold_at ?? 0).getTime() -
+              new Date(a.last_sold_at ?? 0).getTime()
+            );
+          case "stock-low":
+            return a.quantity - b.quantity;
+          case "stock-high":
+            return b.quantity - a.quantity;
+          case "price-low":
+            return Number(a.selling_price) - Number(b.selling_price);
+          case "price-high":
+            return Number(b.selling_price) - Number(a.selling_price);
+          case "recently-updated":
+          default:
+            return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+        }
+      });
+    },
+    [data, q, brandFilter, inventorySort],
+  );
+  const quickSaleProducts = useMemo(() => {
+    return (data ?? []).filter((product) => product.quick_sale && product.quantity > 0);
+  }, [data]);
+  const receiptSubtotal = receiptItems.reduce(
+    (sum, item) => sum + item.quantity * item.unit_price,
+    0,
+  );
+  const receiptItemCount = receiptItems.reduce((sum, item) => sum + item.quantity, 0);
+  const activeDiscountPercent =
+    discountMode === "custom"
+      ? clampPercent(Number(customDiscountPercent) || 0)
+      : clampPercent(discountPercent);
+  const suggestedDiscount = Math.min(
+    receiptSubtotal,
+    Math.max(0, receiptSubtotal * (activeDiscountPercent / 100)),
+  );
+  const discountAmount =
+    discountOverride.trim() !== ""
+      ? Math.min(receiptSubtotal, Math.max(0, Number(discountOverride) || 0))
+      : suggestedDiscount;
+  const suggestedTotal = Math.max(0, receiptSubtotal - discountAmount);
+  const receiptTotal =
+    totalOverride.trim() !== "" ? Math.max(0, Number(totalOverride) || 0) : suggestedTotal;
+  const suggestedChange = Math.max(0, (Number(cashPaid) || 0) - receiptTotal);
+  const changeDue =
+    changeOverride.trim() !== "" ? Math.max(0, Number(changeOverride) || 0) : suggestedChange;
+
+  const applyDiscountPercent = (mode: "none" | "preset" | "custom", percent: number) => {
+    setDiscountMode(mode);
+    setDiscountPercent(percent);
+    if (mode === "custom") return;
+    const suggestion = Math.min(receiptSubtotal, Math.max(0, receiptSubtotal * (percent / 100)));
+    setDiscountOverride(suggestion > 0 ? suggestion.toFixed(2) : "");
+  };
+
+  const resetReceipt = (receiptIndex = activeReceiptIndex, options?: { closeSecond?: boolean }) => {
+    const slot = receiptDraftSlots[receiptIndex];
+    setReceiptDrafts((current) => {
+      const next = [...current] as [ReceiptDraft, ReceiptDraft];
+      next[receiptIndex] = emptyReceiptDraft();
+      return next;
+    });
+    pushDraft([], slot);
+
+    if (receiptIndex === 1) {
+      setSecondReceiptOpen(false);
+      setActiveReceiptIndex(0);
+      return;
+    }
+
+    if (options?.closeSecond && isReceiptDraftEmpty(receiptDrafts[1])) {
+      setSecondReceiptOpen(false);
+    }
+  };
+
+  const invalidateStockQueries = () => {
+    qc.invalidateQueries({ queryKey: ["inventory"] });
+    qc.invalidateQueries({ queryKey: ["products"] });
+    qc.invalidateQueries({ queryKey: ["archive"] });
+    qc.invalidateQueries({ queryKey: ["reports"] });
+    qc.invalidateQueries({ queryKey: ["sold-products-report"] });
+    qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
+  };
+
+  const adjustStock = useMutation({
+    mutationFn: async ({
+      article_number,
+      mode,
+    }: {
+      article_number: string;
+      mode: "remove" | "return";
+    }) => adjustProductStockByArticleNumber({ data: { article_number, mode } }),
+    onSuccess: (result) => {
+      if (result.status === "updated") {
+        const action = result.mode === "return" ? "Returned" : "Removed";
+        toast.success(
+          `${action} ${result.product.name}: ${result.product.previous_quantity} -> ${result.product.quantity}`,
+        );
+        setCameraActive(false);
+
+        if (result.mode === "remove") {
+          const product = result.product;
+          setReceiptItems((prev) => {
+            const idx = prev.findIndex((item) => item.product_id === product.id);
+            const next =
+              idx === -1
+                ? [
+                    ...prev,
+                    {
+                      product_id: product.id,
+                      article_number: product.article_number,
+                      description: product.name,
+                      quantity: 1,
+                      unit_price: Number(product.selling_price),
+                    },
+                  ]
+                : prev.map((line, lineIndex) =>
+                    lineIndex === idx ? { ...line, quantity: line.quantity + 1 } : line,
+                  );
+            pushDraft(next);
+            return next;
+          });
+        }
+      } else if (result.status === "out_of_stock") {
+        toast.warning(`${result.product.name} is out of stock`);
+      } else {
+        toast.error(`No product found for ${result.article_number}`);
+      }
+
+      setScanCode("");
+      invalidateStockQueries();
+      requestAnimationFrame(() => scanInputRef.current?.focus());
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  adjustStockRef.current = adjustStock;
+  cameraZoomRef.current = cameraZoom;
+
+  const returnReceiptStock = useMutation({
+    mutationFn: async (items: { product_id: string | null; quantity: number }[]) =>
+      restoreReceiptStock({ data: { items } }),
+    onSuccess: () => {
+      invalidateStockQueries();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const saveReceipt = useMutation({
+    mutationFn: async () => {
+      const items = receiptItems.filter(
+        (item) =>
+          item.description.trim().length > 0 &&
+          Number(item.quantity) > 0 &&
+          Number(item.unit_price) >= 0,
+      );
+      if (items.length === 0) throw new Error("Receipt has no items.");
+
+      return createReceipt({
+        data: {
+          items,
+          customer_name: null,
+          discount: discountAmount,
+          total: receiptTotal,
+          cash_paid: Number(cashPaid) || 0,
+          cash_exchange: changeDue,
+        },
+      });
+    },
+    onSuccess: (receipt) => {
+      toast.success(`Receipt #${receipt.invoice_number} saved`);
+      const printUrl = `/print/receipt/${receipt.id}`;
+      if (printWindowRef.current) {
+        printWindowRef.current.location.href = printUrl;
+      } else {
+        window.open(printUrl, "_blank");
+      }
+      resetReceipt(activeReceiptIndex, { closeSecond: true });
+      invalidateStockQueries();
+      qc.invalidateQueries({ queryKey: ["recent-receipts"] });
+    },
+    onError: (e: Error) => {
+      printWindowRef.current?.close();
+      printWindowRef.current = null;
+      toast.error(e.message);
+    },
+  });
+
+  const clearReceipt = async () => {
+    if (receiptItems.length === 0 || returnReceiptStock.isPending) return;
+    const result = await returnReceiptStock.mutateAsync(receiptItems);
+    resetReceipt(activeReceiptIndex);
+    if (result.restored > 0) {
+      toast.success(`Returned ${result.restored} item(s) to inventory`);
+    }
+  };
+
+  const openNewReceipt = () => {
+    if (secondReceiptOpen || receiptDrafts[1].items.length > 0) {
+      toast.info("Both receipts are already open");
+      return;
+    }
+    setSecondReceiptOpen(true);
+    setActiveReceiptIndex(1);
+  };
+
+  const removeOneReceiptItem = async (item: ReceiptLine, index: number) => {
+    if (returnReceiptStock.isPending) return;
+    const shouldCloseSecondReceipt =
+      activeReceiptIndex === 1 && receiptItems.length === 1 && item.quantity <= 1;
+    const result = await returnReceiptStock.mutateAsync([
+      { product_id: item.product_id, quantity: 1 },
+    ]);
+    setReceiptItems((prev) => {
+      const next = prev.flatMap((line, lineIndex) => {
+        if (lineIndex !== index) return [line];
+        if (line.quantity <= 1) return [];
+        return [{ ...line, quantity: line.quantity - 1 }];
+      });
+      pushDraft(next);
+      return next;
+    });
+    if (shouldCloseSecondReceipt) {
+      resetReceipt(1);
+    }
+    if (result.restored > 0) {
+      toast.success("Returned 1 item to inventory");
+    }
+  };
+
+  const addOneReceiptItem = (item: ReceiptLine) => {
+    if (adjustStock.isPending) return;
+    const articleNumber =
+      item.article_number ??
+      (item.product_id
+        ? data?.find((product) => product.id === item.product_id)?.article_number
+        : undefined);
+
+    if (!articleNumber) {
+      toast.error("Could not find this product in inventory.");
+      return;
+    }
+
+    adjustStock.mutate({ article_number: articleNumber, mode: "remove" });
+  };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const hasDraft = receiptDrafts.some(
+      (draft) =>
+        draft.items.length > 0 ||
+        draft.cashPaid.trim().length > 0 ||
+        draft.discountMode !== "none" ||
+        draft.discountPercent > 0 ||
+        draft.customDiscountPercent.trim().length > 0 ||
+        draft.discountOverride.trim().length > 0 ||
+        draft.totalOverride.trim().length > 0 ||
+        draft.changeOverride.trim().length > 0,
+    );
+
+    if (!hasDraft) {
+      window.localStorage.removeItem(RECEIPT_DRAFTS_KEY);
+      window.localStorage.removeItem(RECEIPT_DRAFT_KEY);
+      return;
+    }
+
+    window.localStorage.setItem(RECEIPT_DRAFTS_KEY, JSON.stringify(receiptDrafts));
+  }, [receiptDrafts]);
+
+  useEffect(() => {
+    if (!draftReceipt) return;
+    const fetched = JSON.stringify(draftReceipt.items);
+    // Skip if this is just the poll echoing back what we ourselves last
+    // pushed - only adopt it when some other device changed the shared draft.
+    if (fetched === lastPushedDraftRef.current[activeReceiptSlot]) return;
+    if (fetched === JSON.stringify(receiptItems)) return;
+    lastPushedDraftRef.current[activeReceiptSlot] = fetched;
+    setReceiptItems(draftReceipt.items);
+  }, [activeReceiptSlot, draftReceipt, receiptItems]);
+
+  useEffect(() => {
+    const stream = cameraStreamRef.current;
+    if (stream) void applyCameraZoom(stream, cameraZoom);
+  }, [cameraZoom]);
+
+  useEffect(() => {
+    if (!cameraActive) return;
+
+    let stream: MediaStream | null = null;
+    let ocrTimer = 0;
+    let ocrBusy = false;
+    let stopped = false;
+
+    const stopCamera = () => {
+      stopped = true;
+      if (ocrTimer) window.clearInterval(ocrTimer);
+      cameraStreamRef.current = null;
+      stream?.getTracks().forEach((track) => track.stop());
+      stream = null;
+    };
+
+    const startCamera = async () => {
+      setCameraError("");
+
+      try {
+        if (!videoRef.current) return;
+
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const backCamera = devices.find((device) => /back|rear|environment/i.test(device.label));
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: cameraConstraints(backCamera?.deviceId, cameraZoomRef.current),
+          audio: false,
+        });
+        cameraStreamRef.current = stream;
+        await applyCameraZoom(stream, cameraZoomRef.current);
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+        const { recognize } = await import("tesseract.js");
+
+        const scanText = async () => {
+          if (stopped || ocrBusy || !videoRef.current || adjustStockRef.current?.isPending) {
+            return;
+          }
+          const video = videoRef.current;
+          if (!video.videoWidth || !video.videoHeight) return;
+
+          ocrBusy = true;
+          try {
+            const canvas = document.createElement("canvas");
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const context = canvas.getContext("2d");
+            if (!context) return;
+            const zoom = cameraZoomRef.current;
+            const sourceWidth = video.videoWidth / zoom;
+            const sourceHeight = video.videoHeight / zoom;
+            const sourceX = (video.videoWidth - sourceWidth) / 2;
+            const sourceY = (video.videoHeight - sourceHeight) / 2;
+            context.drawImage(
+              video,
+              sourceX,
+              sourceY,
+              sourceWidth,
+              sourceHeight,
+              0,
+              0,
+              canvas.width,
+              canvas.height,
+            );
+            const result = await recognize(canvas, "eng");
+            const code = textCodeFromOcr(result.data.text);
+            if (code && scanCooldownRef.current !== code) {
+              scanCooldownRef.current = code;
+              setScanCode(code);
+              adjustStockRef.current?.mutate({ article_number: code, mode: scanMode });
+              window.setTimeout(() => {
+                if (scanCooldownRef.current === code) scanCooldownRef.current = "";
+              }, 2200);
+            }
+          } catch {
+            setCameraError("Could not read the text. Try better light or move closer.");
+          } finally {
+            ocrBusy = false;
+          }
+        };
+
+        await scanText();
+        ocrTimer = window.setInterval(scanText, 2200);
+      } catch {
+        setCameraError("Camera permission was blocked or no camera was found.");
+        setCameraActive(false);
+      }
+    };
+
+    startCamera();
+    return stopCamera;
+  }, [cameraActive, scanMode]);
+
+  const handleScan = () => {
+    const articleNumber = scanCode.trim();
+    if (!articleNumber || adjustStock.isPending) return;
+    if (!/^[A-Za-z0-9 ]{1,20}$/.test(articleNumber)) {
+      toast.error("Article number must be 20 characters or less with no special characters.");
+      return;
+    }
+    adjustStock.mutate({ article_number: articleNumber, mode: scanMode });
+  };
+
+  const sellQuickProduct = (articleNumber: string) => {
+    if (adjustStock.isPending) return;
+    setScanMode("remove");
+    setScanCode(articleNumber);
+    adjustStock.mutate({ article_number: articleNumber, mode: "remove" });
+  };
+
+  const handleCameraTouchStart = (event: TouchEvent<HTMLDivElement>) => {
+    if (event.touches.length === 2) {
+      pinchDistanceRef.current = touchDistance(event.touches);
+    }
+  };
+
+  const handleCameraTouchMove = (event: TouchEvent<HTMLDivElement>) => {
+    if (event.touches.length !== 2) return;
+    event.preventDefault();
+    const nextDistance = touchDistance(event.touches);
+    const previousDistance = pinchDistanceRef.current || nextDistance;
+    if (!nextDistance || !previousDistance) return;
+    pinchDistanceRef.current = nextDistance;
+    setCameraZoom((zoom) => clampCameraZoom(zoom * (nextDistance / previousDistance)));
+  };
+
+  const handleCameraTouchEnd = () => {
+    pinchDistanceRef.current = 0;
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Inventory</h1>
+        <p className="text-sm text-muted-foreground">Stock levels across all products</p>
+      </div>
+      <Card className="p-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-end">
+          <div className="space-y-1.5">
+            <div className="text-sm font-medium">Action</div>
+            <ToggleGroup
+              type="single"
+              value={scanMode}
+              onValueChange={(value) => {
+                if (value === "remove" || value === "return") setScanMode(value);
+              }}
+              className="justify-start"
+            >
+              <ToggleGroupItem value="remove" aria-label="Sell one item">
+                <ShoppingCart className="size-4 mr-1.5" />
+                Sell
+              </ToggleGroupItem>
+              <ToggleGroupItem value="return" aria-label="Return one item">
+                <RotateCcw className="size-4 mr-1.5" />
+                Return
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </div>
+          <div className="min-w-0 flex-1 max-w-sm space-y-1.5">
+            <label htmlFor="stock-scan" className="text-sm font-medium">
+              Article number
+            </label>
+            <div className="relative">
+              <ScanLine className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="stock-scan"
+                ref={scanInputRef}
+                className="pl-9 font-mono"
+                placeholder={
+                  adjustStock.isPending
+                    ? "Saving..."
+                    : scanMode === "return"
+                      ? "Scan to return"
+                      : "Scan to sell"
+                }
+                value={scanCode}
+                autoComplete="off"
+                inputMode="numeric"
+                maxLength={20}
+                onChange={(e) => setScanCode(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleScan();
+                  }
+                }}
+              />
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant={cameraActive ? "secondary" : "outline"}
+            className="md:w-36"
+            onClick={() => setCameraActive((active) => !active)}
+          >
+            {cameraActive ? <X className="size-4" /> : <Camera className="size-4" />}
+            {cameraActive ? "Close" : "Camera"}
+          </Button>
+        </div>
+        {(cameraActive || cameraError) && (
+          <div className="mt-4 overflow-hidden rounded-md border bg-muted/20">
+            {cameraActive ? (
+              <div
+                className="relative aspect-[4/3] max-h-[460px] touch-none bg-black"
+                onTouchEnd={handleCameraTouchEnd}
+                onTouchMove={handleCameraTouchMove}
+                onTouchStart={handleCameraTouchStart}
+              >
+                <video
+                  ref={videoRef}
+                  className="size-full object-cover"
+                  playsInline
+                  style={{ transform: `scale(${Math.max(1, cameraZoom / 1.35)})` }}
+                  muted
+                />
+                <div className="pointer-events-none absolute right-3 top-3 rounded-md bg-black/65 px-2 py-1 text-xs font-medium text-white">
+                  {cameraZoom.toFixed(1)}x
+                </div>
+                <div className="pointer-events-none absolute inset-x-[10%] top-1/2 h-32 -translate-y-1/2 rounded-md border-2 border-primary shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
+              </div>
+            ) : null}
+            {cameraError ? (
+              <div className="border-t px-3 py-2 text-sm text-destructive">{cameraError}</div>
+            ) : null}
+          </div>
+        )}
+      </Card>
+
+      <Card className="p-4 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium">Quick sales</div>
+          </div>
+          {quickSaleProducts.length > 0 && (
+            <Button
+              type="button"
+              variant={quickSalesEditing ? "default" : "outline"}
+              size="sm"
+              onClick={() => setQuickSalesEditing((editing) => !editing)}
+            >
+              {quickSalesEditing ? "Save" : "Edit"}
+            </Button>
+          )}
+        </div>
+        {quickSaleProducts.length === 0 ? (
+          <div className="py-4 text-sm text-muted-foreground">
+            Add products from the inventory list below.
+          </div>
+        ) : (
+          <div className="max-h-36 overflow-y-auto pr-1">
+            <div className="flex flex-wrap gap-3">
+              {quickSaleProducts.map((product) => (
+                <div key={product.id} className="relative max-w-full">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-w-0 max-w-full justify-start px-3"
+                    disabled={quickSalesEditing || adjustStock.isPending || product.quantity <= 0}
+                    onClick={() => sellQuickProduct(product.article_number)}
+                  >
+                    <ShoppingCart className="size-4 shrink-0" />
+                    <span className="truncate">{product.name}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {money(product.selling_price)}
+                    </span>
+                  </Button>
+                  {quickSalesEditing && (
+                    <button
+                      type="button"
+                      className="absolute -right-2 -top-2 grid size-5 place-items-center rounded-full border bg-destructive text-destructive-foreground shadow-sm"
+                      onClick={() =>
+                        toggleQuickSale.mutate({ id: product.id, quick_sale: false })
+                      }
+                      aria-label={`Remove ${product.name} from quick sales`}
+                    >
+                      <span className="h-0.5 w-2.5 rounded-full bg-current" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {showReceiptPanel && (
+        <Card className="p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium">Receipt {activeReceiptIndex + 1}</div>
+              <div className="text-xs text-muted-foreground">
+                Items are added to the selected receipt.
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={openNewReceipt}>
+                New receipt
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={returnReceiptStock.isPending || receiptItems.length === 0}
+                onClick={() => void clearReceipt()}
+              >
+                <Trash2 className="size-4 mr-1.5" />
+                {returnReceiptStock.isPending ? "Returning..." : "Clear"}
+              </Button>
+            </div>
+          </div>
+
+          {showReceiptSelector && (
+            <div className="grid gap-3 md:grid-cols-2">
+              {receiptDrafts.map((draft, index) => {
+                const itemCount = draft.items.reduce((sum, item) => sum + item.quantity, 0);
+                const subtotal = draft.items.reduce(
+                  (sum, item) => sum + item.quantity * item.unit_price,
+                  0,
+                );
+                const isActive = activeReceiptIndex === index;
+
+                return (
+                  <button
+                    key={receiptDraftSlots[index]}
+                    type="button"
+                    className={`rounded-md border p-3 text-left transition-colors ${
+                      isActive
+                        ? "border-primary bg-primary/5 shadow-sm"
+                        : "hover:border-primary/50 hover:bg-muted/30"
+                    }`}
+                    onClick={() => setActiveReceiptIndex(index as 0 | 1)}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-medium">Receipt {index + 1}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {itemCount} item(s) · {money(subtotal)}
+                        </div>
+                      </div>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                          isActive
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {isActive ? "Selected" : "Select"}
+                      </span>
+                    </div>
+                    {draft.items.length > 0 ? (
+                      <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+                        {draft.items.slice(0, 3).map((item) => (
+                          <div
+                            key={`${item.product_id ?? item.description}-${item.unit_price}`}
+                            className="flex justify-between gap-2"
+                          >
+                            <span className="truncate">
+                              {item.quantity}x {item.description}
+                            </span>
+                            <span className="shrink-0 tabular-nums">
+                              {money(item.quantity * item.unit_price)}
+                            </span>
+                          </div>
+                        ))}
+                        {draft.items.length > 3 && (
+                          <div>+{draft.items.length - 3} more item(s)</div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="mt-3 text-xs text-muted-foreground">Ready for items.</div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {receiptItems.length === 0 ? (
+            <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+              Scan or click a product to add it to Receipt {activeReceiptIndex + 1}.
+            </div>
+          ) : (
+            <>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-muted-foreground">
+                <tr className="text-left">
+                  <th className="py-1 pr-2 font-medium">Qty</th>
+                  <th className="py-1 pr-2 font-medium">Description</th>
+                  <th className="py-1 pr-2 text-right font-medium">Price</th>
+                  <th className="py-1 pr-2 text-right font-medium">Total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {receiptItems.map((item, index) => (
+                  <tr key={item.product_id ?? item.description}>
+                    <td className="py-1.5 pr-2">
+                      <div className="inline-flex items-center overflow-hidden rounded-md border bg-background">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 rounded-none"
+                          disabled={returnReceiptStock.isPending}
+                          onClick={() => void removeOneReceiptItem(item, index)}
+                          aria-label={`Decrease ${item.description} quantity`}
+                        >
+                          <Minus className="size-4" />
+                        </Button>
+                        <span className="min-w-8 px-2 text-center text-sm font-medium tabular-nums">
+                          {item.quantity}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 rounded-none"
+                          disabled={adjustStock.isPending}
+                          onClick={() => addOneReceiptItem(item)}
+                          aria-label={`Increase ${item.description} quantity`}
+                        >
+                          <Plus className="size-4" />
+                        </Button>
+                      </div>
+                    </td>
+                    <td className="py-1.5 pr-2">{item.description}</td>
+                    <td className="py-1.5 pr-2 text-right tabular-nums">
+                      {money(item.unit_price)}
+                    </td>
+                    <td className="py-1.5 pr-2 text-right tabular-nums">
+                      {money(item.quantity * item.unit_price)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex justify-end gap-4 text-sm font-semibold">
+            <span>Total items: {receiptItemCount}</span>
+            <span>Subtotal: {money(receiptSubtotal)}</span>
+          </div>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label className="block">Apply discount</Label>
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  type="button"
+                  variant={discountMode === "none" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    applyDiscountPercent("none", 0);
+                    setCustomDiscountPercent("");
+                  }}
+                >
+                  None
+                </Button>
+                {discountOptions.map((percent) => (
+                  <Button
+                    key={percent}
+                    type="button"
+                    variant={
+                      discountMode === "preset" && discountPercent === percent
+                        ? "default"
+                        : "outline"
+                    }
+                    size="sm"
+                    onClick={() => {
+                      applyDiscountPercent("preset", percent);
+                      setCustomDiscountPercent("");
+                    }}
+                  >
+                    {percent}%
+                  </Button>
+                ))}
+                <Button
+                  type="button"
+                  variant={discountMode === "custom" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => applyDiscountPercent("custom", 0)}
+                >
+                  Custom
+                </Button>
+              </div>
+            </div>
+
+            {discountMode === "custom" && (
+              <div className="space-y-2">
+                <Label htmlFor="custom-discount-percent">Custom percent</Label>
+                <Input
+                  id="custom-discount-percent"
+                  className="max-w-40"
+                  inputMode="decimal"
+                  placeholder="Percent"
+                  type="text"
+                  value={customDiscountPercent}
+                  onChange={(e) => {
+                    const value = e.target.value.replace(/[^0-9.]/g, "");
+                    const [whole, ...decimalParts] = value.split(".");
+                    const normalized = decimalParts.length
+                      ? `${whole}.${decimalParts.join("").slice(0, 2)}`
+                      : whole;
+                    const pct = clampPercent(Number(normalized) || 0);
+                    const nextValue = normalized === "" ? "" : String(pct);
+                    setCustomDiscountPercent(nextValue);
+                    const suggestion = Math.min(
+                      receiptSubtotal,
+                      Math.max(0, receiptSubtotal * (pct / 100)),
+                    );
+                    setDiscountOverride(suggestion > 0 ? suggestion.toFixed(2) : "");
+                  }}
+                />
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="discount-amount">Discount amount</Label>
+              <Input
+                id="discount-amount"
+                className="max-w-40"
+                inputMode="decimal"
+                placeholder="0.00"
+                type="text"
+                value={discountOverride}
+                onChange={(e) => setDiscountOverride(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-3">
+            <span className="text-sm font-semibold">Total</span>
+            <span className="min-w-28 select-none rounded-md border bg-muted/40 px-3 py-2 text-right font-semibold tabular-nums">
+              {money(receiptTotal)}
+            </span>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="cash-paid">Cash paid (optional)</Label>
+            <Input
+              id="cash-paid"
+              className="max-w-40"
+              inputMode="decimal"
+              type="text"
+              value={cashPaid}
+              onChange={(e) => setCashPaid(e.target.value)}
+            />
+          </div>
+
+          {cashPaid.trim().length > 0 && (
+            <div className="flex items-center justify-end gap-3">
+              <Label htmlFor="change-amount" className="text-sm font-semibold">
+                Change
+              </Label>
+              <Input
+                id="change-amount"
+                className="max-w-28 text-right font-semibold"
+                inputMode="decimal"
+                type="text"
+                value={changeOverride !== "" ? changeOverride : suggestedChange.toFixed(2)}
+                onChange={(e) => setChangeOverride(e.target.value)}
+              />
+            </div>
+          )}
+          <Button
+            type="button"
+            className="w-full sm:w-auto"
+            disabled={saveReceipt.isPending || returnReceiptStock.isPending}
+            onClick={() => {
+              // Open the tab synchronously within the click handler - Safari
+              // blocks window.open() called later from an async onSuccess.
+              printWindowRef.current = window.open("about:blank", "_blank");
+              saveReceipt.mutate();
+            }}
+          >
+            <Printer className="size-4 mr-1.5" />
+            {saveReceipt.isPending ? "Saving…" : "Save & Print"}
+          </Button>
+            </>
+          )}
+        </Card>
+      )}
+
+      <div className="flex flex-col gap-3 sm:flex-row">
+        <div className="relative w-full sm:max-w-md">
+          <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="pl-9"
+            placeholder="Search…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        </div>
+        <Select value={brandFilter} onValueChange={setBrandFilter}>
+          <SelectTrigger className="w-full sm:w-48">
+            <SelectValue placeholder="All brands" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All brands</SelectItem>
+            {brandOptions.map((brand) => (
+              <SelectItem key={brand} value={brand}>
+                {brand}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={inventorySort}
+          onValueChange={(value) => setInventorySort(value as InventorySort)}
+        >
+          <SelectTrigger className="w-full sm:w-52">
+            <SelectValue placeholder="Sort" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="recently-updated">Recently updated</SelectItem>
+            <SelectItem value="recently-sold">Most recently sold</SelectItem>
+            <SelectItem value="stock-low">Lowest stock</SelectItem>
+            <SelectItem value="stock-high">Highest stock</SelectItem>
+            <SelectItem value="price-low">Lowest price</SelectItem>
+            <SelectItem value="price-high">Highest price</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <Card className="overflow-hidden">
+        {filtered.length === 0 ? (
+          <div className="p-10 text-center text-muted-foreground">No items.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-sm">
+              <thead className="bg-muted/40 text-muted-foreground">
+                <tr className="text-left">
+                  <th className="p-3 font-medium">Article number</th>
+                  <th className="p-3 font-medium">Product</th>
+                  <th className="p-3 font-medium">Brand</th>
+                  <th className="p-3 font-medium text-right">Retail Price</th>
+                  <th className="p-3 font-medium text-right">Current</th>
+                  <th className="p-3 font-medium">Last sold</th>
+                  <th className="p-3 font-medium">Last updated</th>
+                  <th className="p-3 font-medium text-right">Quick sale</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {filtered.map((p) => (
+                    <tr
+                      key={p.id}
+                      className="cursor-pointer hover:bg-muted/30"
+                      onClick={() => {
+                        sellQuickProduct(p.article_number);
+                      }}
+                    >
+                      <td className="p-3 font-mono text-xs text-muted-foreground">
+                        {p.article_number}
+                      </td>
+                      <td className="p-3 font-medium">{p.name}</td>
+                      <td className="p-3 text-muted-foreground">{p.sub_brand ?? "-"}</td>
+                      <td className="p-3 text-right tabular-nums">{money(p.selling_price)}</td>
+                      <td className="p-3 text-right tabular-nums">{p.quantity}</td>
+                      <td className="p-3 text-muted-foreground text-xs">
+                        {p.last_sold_at ? new Date(p.last_sold_at).toLocaleString() : "-"}
+                      </td>
+                      <td className="p-3 text-muted-foreground text-xs">
+                        {new Date(p.updated_at).toLocaleString()}
+                      </td>
+                      <td className="p-3 text-right">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={p.quick_sale || toggleQuickSale.isPending}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            toggleQuickSale.mutate({ id: p.id, quick_sale: true });
+                          }}
+                        >
+                          {p.quick_sale ? "Added" : "Add"}
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
