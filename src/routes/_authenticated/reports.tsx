@@ -1,4 +1,4 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { CalendarDays, Download, Printer, Receipt, ShoppingBag, TrendingUp } from "lucide-react";
@@ -23,14 +23,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { money } from "@/lib/format";
-import { isSuperAdmin } from "@/lib/auth";
 
 export const Route = createFileRoute("/_authenticated/reports")({
-  beforeLoad: () => {
-    if (!isSuperAdmin()) {
-      throw redirect({ to: "/dashboard" });
-    }
-  },
   head: () => ({ meta: [{ title: "Reports — SportsWear Inventory" }] }),
   component: Reports,
 });

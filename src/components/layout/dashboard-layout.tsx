@@ -15,7 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
-import { canAccessPath, getCurrentUser, isSignedIn, signOut } from "@/lib/auth";
+import { isSignedIn, signOut } from "@/lib/auth";
 import logo from "@/assets/logo.png";
 
 const nav = [
@@ -42,10 +42,6 @@ export function DashboardLayout({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
   const [nightMode, setNightMode] = useState(getInitialNightMode);
-  const currentUser = getCurrentUser();
-  const visibleNav =
-    currentUser === "superadmin" ? nav : nav.filter((item) => item.to !== "/reports");
-
   const isActive = (to: string) => pathname === to || pathname.startsWith(to + "/");
 
   const handleSignOut = () => {
@@ -58,10 +54,6 @@ export function DashboardLayout({ children }: { children: ReactNode }) {
       if (!isSignedIn()) {
         navigate({ to: "/signin", replace: true });
         return;
-      }
-
-      if (!canAccessPath(pathname)) {
-        navigate({ to: "/dashboard", replace: true });
       }
     };
 
@@ -97,7 +89,7 @@ export function DashboardLayout({ children }: { children: ReactNode }) {
           />
         </div>
         <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-          {visibleNav.map(({ to, label, icon: Icon }) => (
+          {nav.map(({ to, label, icon: Icon }) => (
             <Link
               key={to}
               to={to}
