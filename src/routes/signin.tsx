@@ -127,7 +127,7 @@ function SignInPage() {
                     Sign in
                   </h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Enter superadmin or demo credentials.
+                    Enter demo credentials.
                   </p>
                 </div>
               </div>
