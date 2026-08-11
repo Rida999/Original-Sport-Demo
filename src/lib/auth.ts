@@ -1,18 +1,12 @@
 const AUTH_STORAGE_KEY = "original-sport-authenticated";
 const AUTH_USER_STORAGE_KEY = "original-sport-auth-user";
-const SUPERADMIN_PASSWORD_STORAGE_KEY = "original-sport-superadmin-password";
-
-const SUPERADMIN_USERNAME = "superadmin";
 const DEMO_SUPERADMIN_USERNAME = "demo-superadmin";
-const SUPERADMIN_DEFAULT_PASSWORD = "superadmin";
 const DEMO_SUPERADMIN_PASSWORD = "demo-superadmin";
-const SUPERADMIN_ONLY_PATHS = ["/reports"];
 
-type UserRole = "admin" | "superadmin";
+type UserRole = "superadmin";
 
 type SignInResult =
   | { success: true; requiresPasswordChange: false }
-  | { success: true; requiresPasswordChange: true }
   | { success: false; requiresPasswordChange: false };
 
 export function isSignedIn() {
@@ -23,7 +17,7 @@ export function isSignedIn() {
 export function getCurrentUser(): UserRole | null {
   if (typeof window === "undefined" || !isSignedIn()) return null;
   const user = window.localStorage.getItem(AUTH_USER_STORAGE_KEY);
-  return user === SUPERADMIN_USERNAME ? "superadmin" : "admin";
+  return user === "superadmin" ? "superadmin" : null;
 }
 
 export function isSuperAdmin() {
@@ -31,11 +25,7 @@ export function isSuperAdmin() {
 }
 
 export function canAccessPath(pathname: string) {
-  if (!isSignedIn()) return false;
-  if (isSuperAdmin()) return true;
-  return !SUPERADMIN_ONLY_PATHS.some(
-    (path) => pathname === path || pathname.startsWith(path + "/"),
-  );
+  return isSignedIn();
 }
 
 export function signIn(username: string, password: string): SignInResult {
@@ -45,39 +35,15 @@ export function signIn(username: string, password: string): SignInResult {
 
   const normalizedUsername = username.trim().toLowerCase();
 
-  if (normalizedUsername === "admin" && password === "admin") {
-    completeSignIn("admin");
-    return { success: true, requiresPasswordChange: false };
-  }
-
-  if (normalizedUsername === DEMO_SUPERADMIN_USERNAME && password === DEMO_SUPERADMIN_PASSWORD) {
+  if (
+    normalizedUsername === DEMO_SUPERADMIN_USERNAME &&
+    password === DEMO_SUPERADMIN_PASSWORD
+  ) {
     completeSignIn("superadmin");
     return { success: true, requiresPasswordChange: false };
   }
 
-  if (normalizedUsername === SUPERADMIN_USERNAME) {
-    const savedPassword = window.localStorage.getItem(SUPERADMIN_PASSWORD_STORAGE_KEY);
-    const activePassword = savedPassword ?? SUPERADMIN_DEFAULT_PASSWORD;
-
-    if (password !== activePassword) {
-      return { success: false, requiresPasswordChange: false };
-    }
-
-    if (!savedPassword) {
-      return { success: true, requiresPasswordChange: true };
-    }
-
-    completeSignIn(SUPERADMIN_USERNAME);
-    return { success: true, requiresPasswordChange: false };
-  }
-
   return { success: false, requiresPasswordChange: false };
-}
-
-export function changeSuperAdminPassword(password: string) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(SUPERADMIN_PASSWORD_STORAGE_KEY, password);
-  completeSignIn(SUPERADMIN_USERNAME);
 }
 
 export function signOut() {
