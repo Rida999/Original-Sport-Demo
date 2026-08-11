@@ -1,4 +1,4 @@
-# 🏪 Original Sport
+# 🏪 Original Sport (IMS)
 
 > **A modern, full-stack inventory management platform designed to simplify retail operations and showcase real-world stock management workflows.**
 
