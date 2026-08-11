@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { canAccessPath, getCurrentUser, isSignedIn, signOut } from "@/lib/auth";
-import logo from "@/assets/logo.svg";
+import logo from "@/assets/logo.png";
 
 const nav = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -92,7 +92,7 @@ export function DashboardLayout({ children }: { children: ReactNode }) {
         <div className="h-24 flex items-center justify-center border-b border-sidebar-border p-2">
           <img
             src={logo}
-            alt="IMS"
+            alt="Original Sport"
             className="h-full w-full object-contain dark:invert"
           />
         </div>
