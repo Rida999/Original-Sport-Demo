@@ -9,6 +9,8 @@
     "build:dev": "vite build --mode development",
     "vercel-build": "npm run build && node scripts/build-vercel.mjs",
     "db:deploy": "psql \"$DATABASE_URL\" -f db/schema.sql",
+    "db:reset-demo": "psql \"$DATABASE_URL\" -f db/reset-demo-data.sql",
+    "db:create-seed-snapshot": "psql \"$DATABASE_URL\" -f db/create-seed-snapshot.sql",
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write ."

@@ -129,6 +129,15 @@ CREATE TABLE IF NOT EXISTS receipt_draft (
 
 INSERT INTO receipt_draft (id) VALUES ('default') ON CONFLICT (id) DO NOTHING;
 
+CREATE TABLE IF NOT EXISTS categories_seed (LIKE categories INCLUDING ALL);
+CREATE TABLE IF NOT EXISTS products_seed (LIKE products INCLUDING ALL);
+CREATE TABLE IF NOT EXISTS activity_logs_seed (LIKE activity_logs INCLUDING ALL);
+CREATE TABLE IF NOT EXISTS import_batches_seed (LIKE import_batches INCLUDING ALL);
+CREATE TABLE IF NOT EXISTS import_items_seed (LIKE import_items INCLUDING ALL);
+CREATE TABLE IF NOT EXISTS receipts_seed (LIKE receipts INCLUDING ALL);
+CREATE TABLE IF NOT EXISTS receipt_items_seed (LIKE receipt_items INCLUDING ALL);
+CREATE TABLE IF NOT EXISTS receipt_draft_seed (LIKE receipt_draft INCLUDING ALL);
+
 CREATE OR REPLACE FUNCTION set_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
