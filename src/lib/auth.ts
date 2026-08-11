@@ -6,7 +6,6 @@ const SUPERADMIN_USERNAME = "superadmin";
 const DEMO_USERNAME = "demo";
 const SUPERADMIN_DEFAULT_PASSWORD = "superadmin";
 const DEMO_PASSWORD = "demo";
-const SUPERADMIN_ONLY_PATHS = ["/reports"];
 
 type UserRole = "admin" | "superadmin";
 
@@ -28,14 +27,6 @@ export function getCurrentUser(): UserRole | null {
 
 export function isSuperAdmin() {
   return getCurrentUser() === "superadmin";
-}
-
-export function canAccessPath(pathname: string) {
-  if (!isSignedIn()) return false;
-  if (isSuperAdmin()) return true;
-  return !SUPERADMIN_ONLY_PATHS.some(
-    (path) => pathname === path || pathname.startsWith(path + "/"),
-  );
 }
 
 export function signIn(username: string, password: string): SignInResult {
